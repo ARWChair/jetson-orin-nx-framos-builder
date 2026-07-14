@@ -56,9 +56,3 @@
       fail:
         msg: "vr_passthrough Binary nicht gefunden – Build fehlgeschlagen!"
       when: not binary.stat.exists
-
-    - name: "Fertig!"
-      debug:
-        msg:
-          - "✅ vr_passthrough erfolgreich gebaut"
-          - "👉 Starten: {{ build_dir }}/vr_passthrough"

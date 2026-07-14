@@ -13,10 +13,6 @@
 
   tasks:
 
-    # ============================================================
-    # PHASE 1: Abhängigkeiten installieren
-    # ============================================================
-
     - name: "Phase 1 | Build-Tools installieren"
       become: true
       apt:
@@ -35,10 +31,6 @@
           - v4l-utils
         state: present
         update_cache: true
-
-    # ============================================================
-    # PHASE 2: Kernel-Source herunterladen
-    # ============================================================
 
     - name: "Phase 2 | Build-Verzeichnis erstellen"
       file:
@@ -84,10 +76,6 @@
       args:
         chdir: "{{ build_dir }}/Linux_for_Tegra/source"
       when: not kernel_jammy.stat.exists
-
-    # ============================================================
-    # PHASE 3: Kernel konfigurieren & kompilieren
-    # ============================================================
 
     - name: "Phase 3 | Prüfen ob Kernel Image bereits kompiliert"
       stat:
@@ -136,10 +124,6 @@
     - name: "Phase 3 | Kernel-Version anzeigen"
       debug:
         msg: "Kernel-Version: {{ kernel_version.stdout }}"
-
-    # ============================================================
-    # PHASE 4: Kernel & Module installieren (SICHER - kein make install)
-    # ============================================================
 
     - name: "Phase 4 | Backup des aktuellen Kernel-Images"
       become: true
@@ -221,10 +205,6 @@
         msg: "IMX900 DTBO nicht gefunden! Framos-Installation fehlgeschlagen."
       when: not dtbo_check.stat.exists
 
-    # ============================================================
-    # PHASE 6: ISP-Tuning-Datei installieren
-    # ============================================================
-
     - name: "Phase 6 | ISP-Verzeichnis erstellen"
       become: true
       file:
@@ -240,19 +220,11 @@
         remote_src: true
         mode: '0664'
 
-    # ============================================================
-    # PHASE 7: Framos-Modul autoload konfigurieren
-    # ============================================================
-
     - name: "Phase 7 | fr_imx900 Modul beim Boot automatisch laden"
       become: true
       copy:
         content: "fr_imx900\n"
         dest: /etc/modules-load.d/framos-imx900.conf
-
-    # ============================================================
-    # PHASE 8: extlinux.conf sicher setzen
-    # ============================================================
 
     - name: "Phase 8 | Aktuelle PARTUUID der Root-Partition ermitteln"
       shell: blkid /dev/nvme0n1p1 -s PARTUUID -o value
@@ -327,17 +299,3 @@
     - name: "Phase 8 | extlinux.conf Inhalt"
       debug:
         msg: "{{ extlinux_content.stdout_lines }}"
-
-    # ============================================================
-    # ABSCHLUSS
-    # ============================================================
-
-    - name: "Fertig! System ist bereit für Reboot"
-      debug:
-        msg:
-          - "✅ Kernel {{ kernel_version.stdout }} installiert"
-          - "✅ Framos IMX900C Treiber installiert"
-          - "✅ DTBOs installiert (cam0 2-lane + cam1 4-lane)"
-          - "✅ extlinux.conf gesetzt mit PARTUUID {{ root_partuuid.stdout }}"
-          - "👉 Bitte jetzt neu starten: sudo reboot"
-          - "👉 Nach Reboot testen: v4l2-ctl --list-devices"

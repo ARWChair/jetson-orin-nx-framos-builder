@@ -1,8 +1,4 @@
 ---
-# Master Playbook - Ausführung:
-#   ansible-playbook Install.yaml -e "target=framos"
-#   ansible-playbook Install.yaml -e "target=all"
-
 - name: "Dispatch: Ziel auswählen"
   hosts: localhost
   gather_facts: false

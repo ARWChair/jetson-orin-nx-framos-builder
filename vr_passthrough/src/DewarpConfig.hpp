@@ -1,25 +1,4 @@
 #pragma once
-// Minimaler Parser fuer das bekannte nvdewarper-INI-Format, z.B.:
-//
-// [property]
-// output-width=1552
-// output-height=1552
-// [surface0]
-// projection-type=2
-// surface-index=0
-// width=2064
-// height=1552
-// focal-length=835
-// top-angle=38.0
-// bottom-angle=-38.0
-// pitch=0.0
-// yaw=0.0
-// roll=0.0
-//
-// Wir nutzen nur die Felder, die fuer die Perspective-Rueckprojektion
-// (Fisheye -> rektilinear) noetig sind. projection-type wird aktuell nur
-// fuer "2" (Perspective) unterstuetzt -- fuer PushBroom/VertRadCyl muesste
-// der Shader erweitert werden.
 
 #include <string>
 #include <map>
@@ -30,11 +9,8 @@
 #include <algorithm>
 
 struct DewarpConfig {
-    // [property]
     int outputWidth  = 1552;
     int outputHeight = 1552;
-
-    // [surface0]
     int    projectionType = 2;
     int    inputWidth     = 2064;
     int    inputHeight    = 1552;
@@ -88,24 +64,10 @@ struct DewarpConfig {
                     if (key == "roll")            cfg.rollDeg        = std::stod(val);
                 }
             } catch (...) {
-                // Zeile ignorieren, falls unerwartetes Format
             }
         }
         return cfg;
     }
-
-    // Baut die 3x3 Rotationsmatrix aus yaw/pitch/roll (Grad).
-    // Konvention: R = Rz(roll) * Rx(pitch) * Ry(yaw), angewandt auf den
-    // Ausgabestrahl bevor er ins Fisheye-Modell zurueckprojiziert wird.
-    //
-    // WICHTIG: GLSL-mat3-Uniforms erwarten die Daten column-major.
-    // glUniformMatrix3fv() wird in main.cpp mit transpose=GL_FALSE
-    // aufgerufen (transpose=GL_TRUE ist unter GLES3/OpenGL ES nicht
-    // erlaubt), d.h. wir muessen hier selbst schon column-major
-    // schreiben: outMat3[col*3 + row] = R(row, col).
-    // Bei pitch=yaw=roll=0 ist R die Identitaet, der Fehler war also
-    // mit der Default-Config unsichtbar -- sobald man die Kamera
-    // tatsaechlich verdreht, hat man sonst die falsche Rotationsrichtung.
     void buildRotationMatrix(float outMat3[9]) const {
         double y = yawDeg   * M_PI / 180.0;
         double p = pitchDeg * M_PI / 180.0;
@@ -114,8 +76,6 @@ struct DewarpConfig {
         double cy = cos(y), sy = sin(y);
         double cp = cos(p), sp = sin(p);
         double cr = cos(r), sr = sin(r);
-
-        // Alle Teilmatrizen row-major: M[row*3+col]
         double Ry[9] = {
              cy, 0, sy,
               0, 1,  0,
@@ -143,10 +103,7 @@ struct DewarpConfig {
 
         double tmp[9], result[9];
         matmul(Rx, Ry, tmp);
-        matmul(Rz, tmp, result);   // result[row*3+col] = R(row, col)
-
-        // Transponiert (column-major) rausschreiben, damit GLSL mit
-        // transpose=GL_FALSE die richtige Matrix bekommt.
+        matmul(Rz, tmp, result);
         for (int row = 0; row < 3; row++)
             for (int col = 0; col < 3; col++)
                 outMat3[col*3 + row] = static_cast<float>(result[row*3 + col]);

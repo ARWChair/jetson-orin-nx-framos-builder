@@ -1,0 +1,64 @@
+---
+- name: VR Passthrough - Build
+  hosts: localhost
+  become: true
+  vars:
+    repo_root: "{{ playbook_dir }}/../.."
+    vr_dir: "{{ repo_root }}/vr_passthrough"
+    build_dir: "{{ vr_dir }}/build"
+
+  tasks:
+
+    - name: "Phase 1 | Build-Abhängigkeiten installieren"
+      become: true
+      apt:
+        name:
+          - cmake
+          - build-essential
+          - pkg-config
+          - libegl-dev
+          - libgles2-mesa-dev
+        state: present
+        update_cache: true
+
+    - name: "Phase 2 | Build-Verzeichnis erstellen"
+      file:
+        path: "{{ build_dir }}"
+        state: directory
+
+    - name: "Phase 3 | CMake konfigurieren"
+      shell: cmake ..
+      args:
+        chdir: "{{ build_dir }}"
+      register: cmake_output
+      changed_when: true
+
+    - name: "Phase 3 | CMake Output anzeigen"
+      debug:
+        msg: "{{ cmake_output.stdout_lines }}"
+
+    - name: "Phase 4 | Kompilieren"
+      shell: make -j$(nproc)
+      args:
+        chdir: "{{ build_dir }}"
+      register: make_output
+
+    - name: "Phase 4 | Build Output anzeigen"
+      debug:
+        msg: "{{ make_output.stdout_lines }}"
+
+    - name: "Phase 5 | Binary prüfen"
+      stat:
+        path: "{{ build_dir }}/vr_passthrough"
+      register: binary
+
+    - name: "Phase 5 | Build fehlgeschlagen"
+      fail:
+        msg: "vr_passthrough Binary nicht gefunden – Build fehlgeschlagen!"
+      when: not binary.stat.exists
+
+    - name: "Fertig!"
+      debug:
+        msg:
+          - "✅ vr_passthrough erfolgreich gebaut"
+          - "👉 Starten: {{ build_dir }}/vr_passthrough"

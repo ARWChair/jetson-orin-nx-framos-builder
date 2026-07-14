@@ -1,0 +1,343 @@
+---
+- name: Jetson Orin NX - IMX900C Kamera Setup
+  hosts: jetson
+  become: false
+  vars:
+    build_dir: "{{ ansible_env.HOME }}/jetson-build"
+    kernel_src: "{{ build_dir }}/Linux_for_Tegra/source/kernel/kernel-jammy-src"
+    framos_src: "{{ build_dir }}/framos-jetson-drivers"
+    modules_staging: "{{ build_dir }}/modules-staging"
+    nvidia_sources_url: "https://developer.nvidia.com/downloads/embedded/l4t/r36_release_v4.4/sources/public_sources.tbz2"
+    partuuid: "a2309a2b-09fd-4749-8285-d1959934f8ca"
+    base_dtb: "kernel_tegra234-p3768-0000+p3767-0001-nv.dtb"
+
+  tasks:
+
+    # ============================================================
+    # PHASE 1: Abhängigkeiten installieren
+    # ============================================================
+
+    - name: "Phase 1 | Build-Tools installieren"
+      become: true
+      apt:
+        name:
+          - build-essential
+          - bc
+          - flex
+          - bison
+          - libssl-dev
+          - libelf-dev
+          - python3
+          - python3-dev
+          - libncurses-dev
+          - wget
+          - git
+          - v4l-utils
+        state: present
+        update_cache: true
+
+    # ============================================================
+    # PHASE 2: Kernel-Source herunterladen
+    # ============================================================
+
+    - name: "Phase 2 | Build-Verzeichnis erstellen"
+      file:
+        path: "{{ build_dir }}"
+        state: directory
+
+    - name: "Phase 2 | Prüfen ob public_sources.tbz2 bereits vorhanden"
+      stat:
+        path: "{{ build_dir }}/public_sources.tbz2"
+      register: sources_tbz2
+
+    - name: "Phase 2 | Nvidia Kernel-Sources herunterladen (~200MB)"
+      get_url:
+        url: "{{ nvidia_sources_url }}"
+        dest: "{{ build_dir }}/public_sources.tbz2"
+        timeout: 600
+      when: not sources_tbz2.stat.exists
+
+    - name: "Phase 2 | Prüfen ob public_sources bereits entpackt"
+      stat:
+        path: "{{ build_dir }}/Linux_for_Tegra"
+      register: l4t_dir
+
+    - name: "Phase 2 | public_sources.tbz2 entpacken"
+      shell: tar -xjf public_sources.tbz2
+      args:
+        chdir: "{{ build_dir }}"
+      when: not l4t_dir.stat.exists
+
+    - name: "Phase 2 | Prüfen ob kernel_src bereits entpackt"
+      stat:
+        path: "{{ build_dir }}/Linux_for_Tegra/source/kernel/kernel-jammy-src"
+      register: kernel_jammy
+
+    - name: "Phase 2 | kernel_src.tbz2 entpacken"
+      shell: tar -xjf kernel_src.tbz2
+      args:
+        chdir: "{{ build_dir }}/Linux_for_Tegra/source"
+      when: not kernel_jammy.stat.exists
+
+    - name: "Phase 2 | kernel_oot_modules_src.tbz2 entpacken"
+      shell: tar -xjf kernel_oot_modules_src.tbz2
+      args:
+        chdir: "{{ build_dir }}/Linux_for_Tegra/source"
+      when: not kernel_jammy.stat.exists
+
+    # ============================================================
+    # PHASE 3: Kernel konfigurieren & kompilieren
+    # ============================================================
+
+    - name: "Phase 3 | Prüfen ob Kernel Image bereits kompiliert"
+      stat:
+        path: "{{ kernel_src }}/arch/arm64/boot/Image"
+      register: kernel_image
+
+    - name: "Phase 3 | Laufende Kernel-Config als Basis nehmen"
+      shell: zcat /proc/config.gz > .config
+      args:
+        chdir: "{{ kernel_src }}"
+      when: not kernel_image.stat.exists
+
+    - name: "Phase 3 | EXTRAVERSION auf -tegra setzen"
+      lineinfile:
+        path: "{{ kernel_src }}/Makefile"
+        regexp: '^EXTRAVERSION =$'
+        line: 'EXTRAVERSION = -tegra'
+      when: not kernel_image.stat.exists
+
+    - name: "Phase 3 | CONFIG_LOCALVERSION leeren (verhindert doppeltes -tegra)"
+      lineinfile:
+        path: "{{ kernel_src }}/.config"
+        regexp: '^CONFIG_LOCALVERSION='
+        line: 'CONFIG_LOCALVERSION=""'
+      when: not kernel_image.stat.exists
+
+    - name: "Phase 3 | olddefconfig ausführen"
+      shell: make ARCH=arm64 olddefconfig
+      args:
+        chdir: "{{ kernel_src }}"
+      when: not kernel_image.stat.exists
+
+    - name: "Phase 3 | Kernel Image und Module kompilieren (~45 min)"
+      shell: make ARCH=arm64 -j$(nproc) Image modules
+      args:
+        chdir: "{{ kernel_src }}"
+      when: not kernel_image.stat.exists
+
+    - name: "Phase 3 | Kernel-Version prüfen"
+      shell: cat include/config/kernel.release
+      args:
+        chdir: "{{ kernel_src }}"
+      register: kernel_version
+      changed_when: false
+
+    - name: "Phase 3 | Kernel-Version anzeigen"
+      debug:
+        msg: "Kernel-Version: {{ kernel_version.stdout }}"
+
+    # ============================================================
+    # PHASE 4: Kernel & Module installieren (SICHER - kein make install)
+    # ============================================================
+
+    - name: "Phase 4 | Backup des aktuellen Kernel-Images"
+      become: true
+      copy:
+        src: /boot/Image
+        dest: /boot/Image.backup
+        remote_src: true
+        force: false
+
+    - name: "Phase 4 | Neues Kernel-Image installieren"
+      become: true
+      copy:
+        src: "{{ kernel_src }}/arch/arm64/boot/Image"
+        dest: /boot/Image
+        remote_src: true
+
+    - name: "Phase 4 | Staging-Verzeichnis erstellen"
+      file:
+        path: "{{ modules_staging }}"
+        state: directory
+
+    - name: "Phase 4 | Module in Staging installieren"
+      shell: make ARCH=arm64 -j$(nproc) modules_install INSTALL_MOD_PATH={{ modules_staging }}
+      args:
+        chdir: "{{ kernel_src }}"
+
+    - name: "Phase 4 | Module-Verzeichnis prüfen"
+      shell: ls {{ modules_staging }}/lib/modules/
+      register: modules_dir
+      changed_when: false
+
+    - name: "Phase 4 | Module manuell ins System kopieren (NICHT make modules_install!)"
+      become: true
+      shell: cp -r {{ modules_staging }}/lib/modules/{{ kernel_version.stdout }} /lib/modules/
+      args:
+        creates: "/lib/modules/{{ kernel_version.stdout }}"
+
+    # ============================================================
+    # PHASE 5: Framos-Treiber bauen & installieren
+    # ============================================================
+
+    - name: "Phase 5 | Prüfen ob Framos-Repo bereits vorhanden"
+      stat:
+        path: "{{ framos_src }}"
+      register: framos_dir
+
+    - name: "Phase 5 | Framos GitHub Repo klonen"
+      git:
+        repo: "https://github.com/framosimaging/framos-jetson-drivers.git"
+        dest: "{{ framos_src }}"
+        version: "l4t-r36.4.4"
+        depth: 0
+      when: not framos_dir.stat.exists
+
+    - name: "Phase 5 | Framos OOT-Module und DTBs bauen"
+      shell: |
+        source build/target_build.sh
+        build_all
+      args:
+        chdir: "{{ framos_src }}"
+        executable: /bin/bash
+
+    - name: "Phase 5 | Framos OOT-Module installieren"
+      shell: |
+        source build/target_build.sh
+        install_all
+      args:
+        chdir: "{{ framos_src }}"
+        executable: /bin/bash
+      become: true
+
+    - name: "Phase 5 | Prüfen ob IMX900 DTBO vorhanden"
+      stat:
+        path: "/boot/framos/dtbo/tegra234-p3767-camera-p3768-fr_imx900-cam0-2lane-overlay.dtbo"
+      register: dtbo_check
+
+    - name: "Phase 5 | DTBO fehlt - Fehler melden"
+      fail:
+        msg: "IMX900 DTBO nicht gefunden! Framos-Installation fehlgeschlagen."
+      when: not dtbo_check.stat.exists
+
+    # ============================================================
+    # PHASE 6: ISP-Tuning-Datei installieren
+    # ============================================================
+
+    - name: "Phase 6 | ISP-Verzeichnis erstellen"
+      become: true
+      file:
+        path: /var/nvidia/nvcam/settings
+        state: directory
+        mode: '0755'
+
+    - name: "Phase 6 | IMX900 ISP-Tuning-Datei installieren"
+      become: true
+      copy:
+        src: "{{ framos_src }}/isp/IMX900_IRC650.isp"
+        dest: /var/nvidia/nvcam/settings/IMX900_IRC650.isp
+        remote_src: true
+        mode: '0664'
+
+    # ============================================================
+    # PHASE 7: Framos-Modul autoload konfigurieren
+    # ============================================================
+
+    - name: "Phase 7 | fr_imx900 Modul beim Boot automatisch laden"
+      become: true
+      copy:
+        content: "fr_imx900\n"
+        dest: /etc/modules-load.d/framos-imx900.conf
+
+    # ============================================================
+    # PHASE 8: extlinux.conf sicher setzen
+    # ============================================================
+
+    - name: "Phase 8 | Aktuelle PARTUUID der Root-Partition ermitteln"
+      shell: blkid /dev/nvme0n1p1 -s PARTUUID -o value
+      become: true
+      register: root_partuuid
+      changed_when: false
+
+    - name: "Phase 8 | PARTUUID anzeigen"
+      debug:
+        msg: "Root PARTUUID: {{ root_partuuid.stdout }}"
+
+    - name: "Phase 8 | Backup der originalen extlinux.conf"
+      become: true
+      copy:
+        src: /boot/extlinux/extlinux.conf
+        dest: /boot/extlinux/extlinux.conf.ORIGINAL_BACKUP
+        remote_src: true
+        force: false
+
+    - name: "Phase 8 | Prüfen ob FDT Zeile bereits vorhanden"
+      shell: grep -c "FDT" /boot/extlinux/extlinux.conf || true
+      become: true
+      register: fdt_exists
+      changed_when: false
+
+    - name: "Phase 8 | FDT Zeile nach INITRD einfügen (nur wenn noch nicht vorhanden)"
+      become: true
+      shell: |
+        sed -i '/INITRD \/boot\/initrd/a\      FDT /boot/dtb/{{ base_dtb }}' /boot/extlinux/extlinux.conf
+      when: fdt_exists.stdout == "0"
+
+    - name: "Phase 8 | Prüfen ob OVERLAYS Zeile bereits vorhanden"
+      shell: grep -c "OVERLAYS" /boot/extlinux/extlinux.conf || true
+      become: true
+      register: overlays_exists
+      changed_when: false
+
+    - name: "Phase 8 | OVERLAYS Zeile nach FDT einfügen (nur wenn noch nicht vorhanden)"
+      become: true
+      shell: |
+        sed -i '/FDT \/boot\/dtb/a\      OVERLAYS /boot/framos/dtbo/tegra234-p3767-camera-p3768-fr_fpa_a_p22-overlay.dtbo,/boot/framos/dtbo/tegra234-p3767-camera-p3768-fr_imx900-cam0-2lane-overlay.dtbo,/boot/framos/dtbo/tegra234-p3767-camera-p3768-fr_imx900-cam1-4lane-overlay.dtbo' /boot/extlinux/extlinux.conf
+      when: overlays_exists.stdout == "0"
+
+    - name: "Phase 8 | OVERLAYS aktualisieren falls bereits vorhanden aber ohne Framos-Einträge"
+      become: true
+      shell: |
+        sed -i 's|.*OVERLAYS.*|      OVERLAYS /boot/framos/dtbo/tegra234-p3767-camera-p3768-fr_fpa_a_p22-overlay.dtbo,/boot/framos/dtbo/tegra234-p3767-camera-p3768-fr_imx900-cam0-2lane-overlay.dtbo,/boot/framos/dtbo/tegra234-p3767-camera-p3768-fr_imx900-cam1-4lane-overlay.dtbo|' /boot/extlinux/extlinux.conf
+      when:
+        - overlays_exists.stdout != "0"
+        - "'framos' not in overlays_exists.stdout"
+
+    - name: "Phase 8 | Backup-Label hinzufügen falls noch nicht vorhanden"
+      become: true
+      shell: |
+        if ! grep -q "LABEL backup" /boot/extlinux/extlinux.conf; then
+          cat >> /boot/extlinux/extlinux.conf << 'EOF'
+
+        LABEL backup
+              MENU LABEL backup kernel (original)
+              LINUX /boot/Image.backup
+              INITRD /boot/initrd
+              APPEND ${cbootargs} root=PARTUUID={{ root_partuuid.stdout }} rw rootwait rootfstype=ext4 mminit_loglevel=4 console=ttyTCU0,115200 firmware_class.path=/etc/firmware fbcon=map:0 video=efifb:off console=tty0 nv-auto-config
+        EOF
+        fi
+
+    - name: "Phase 8 | extlinux.conf anzeigen zur Verifikation"
+      shell: cat /boot/extlinux/extlinux.conf
+      become: true
+      register: extlinux_content
+      changed_when: false
+
+    - name: "Phase 8 | extlinux.conf Inhalt"
+      debug:
+        msg: "{{ extlinux_content.stdout_lines }}"
+
+    # ============================================================
+    # ABSCHLUSS
+    # ============================================================
+
+    - name: "Fertig! System ist bereit für Reboot"
+      debug:
+        msg:
+          - "✅ Kernel {{ kernel_version.stdout }} installiert"
+          - "✅ Framos IMX900C Treiber installiert"
+          - "✅ DTBOs installiert (cam0 2-lane + cam1 4-lane)"
+          - "✅ extlinux.conf gesetzt mit PARTUUID {{ root_partuuid.stdout }}"
+          - "👉 Bitte jetzt neu starten: sudo reboot"
+          - "👉 Nach Reboot testen: v4l2-ctl --list-devices"

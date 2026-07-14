@@ -3,3 +3,7 @@ dewarper
 reverse fisheye
 rauschfilter weg
 tote pixel übermalen
+
+INSTALLER:
+-> vr-passthrough-setup.yml add SDL installation!!
+-> test jetson-imx900-setup.yml (only theoretically written)

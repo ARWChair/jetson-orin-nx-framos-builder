@@ -1,0 +1,25 @@
+---
+# Master Playbook - Ausführung:
+#   ansible-playbook Install.yaml -e "target=framos"
+#   ansible-playbook Install.yaml -e "target=all"
+
+- name: "Dispatch: Ziel auswählen"
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: "Standard-Ziel auf 'all' setzen wenn kein target angegeben"
+      set_fact:
+        target: "all"
+      when: target is not defined or target == ""
+
+    - name: "Ziel anzeigen"
+      debug:
+        msg: "Installiere: {{ target }}"
+
+- name: "framos | Jetson IMX900C Kamera-Treiber Setup"
+  import_playbook: playbooks/jetson-imx900-setup.yml
+  when: target == "framos" or target == "all"
+
+- name: "vr | VR Passthrough Install"
+  import_playbook: playbooks/vr-passthrough-setup.yml
+  when: target == "vr" or target == "all"

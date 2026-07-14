@@ -4,9 +4,26 @@ Automated setup for the FRAMOS camera environment and/or VR passthrough on the N
 
 ## Requirements
 
-- NVIDIA Jetson Orin NX running JetPack (Ubuntu-based)
-- Root / `sudo` privileges
-- Internet connection
+- NVIDIA Jetson Orin NX
+- FRAMOS FSM:GO IMX 900C
+
+### If you have never worked with jetson before or are completely new, then check these things before powering it on
+- Dont hotplug in the sensors. always have the board powered off and cut from power.
+- The board should have 2x 4-lane CSI2 to utilize full power of the framos sensors.
+- You should run 90W Power supply to not run into Overcurrent mode.
+<br></br>
+
+### Before starting, reflash the Jetson on Ubuntu 22.04LTS with these settings
+![Orin NX Settings](../assets/orin_nx_settings.png)
+![Orin NX Flash IMG 1](../assets/orin_nx_flash_img1.png)
+![Orin NX Flash IMG 2](../assets/orin_nx_flash_img2.png)
+![Orin NX Flash IMG 2](../assets/orin_nx_flash_img3.png)
+
+### When Flashed
+- cut from power
+- plug in cameras to the CSI ports
+- plug in power to jetson
+- run the sripts in [](./)
 
 ## Installation
 

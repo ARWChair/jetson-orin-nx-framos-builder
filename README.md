@@ -31,33 +31,14 @@ The decission wasn't made purely based on a single factor. It was a based on mul
 │&emsp;&emsp;└── 📁 [playbooks](./installer/playbooks)  
 │&emsp;&emsp;└── 📁 [data](./installer/data)  
 ├── 📁 [vr_passthrough](./vr_passthrough)  
-├── 📁 [resources](./resources)  
-│&emsp;&emsp;└── 🖼️ [orin_nx_flash_img1.png](./resources/orin_nx_flash_img1.png)  
-│&emsp;&emsp;└── 🖼️ [orin_nx_flash_img2.png](./resources/orin_nx_flash_img2.png)  
-│&emsp;&emsp;└── 🖼️ [orin_nx_flash_img3.png](./resources/orin_nx_flash_img3png)  
-│&emsp;&emsp;└── 🖼️ [orin_nx_settings.png](./resources/orin_nx_settings)  
+├── 📁 [assets](./assets)  
+│&emsp;&emsp;└── 🖼️ [orin_nx_flash_img1.png](./assets/orin_nx_flash_img1.png)  
+│&emsp;&emsp;└── 🖼️ [orin_nx_flash_img2.png](./assets/orin_nx_flash_img2.png)  
+│&emsp;&emsp;└── 🖼️ [orin_nx_flash_img3.png](./assets/orin_nx_flash_img3png)  
+│&emsp;&emsp;└── 🖼️ [orin_nx_settings.png](./assets/orin_nx_settings)  
 └── 📄 [README.md](./README.md)
 <br></br>
 
 ## How to contribute
 If you have a different Framos sensor, then you can just Fork this repo and add your sensor. I would appreciate it so that the project can diversify with other carrier boards, modules and sensors
 <br></br>
-
-### If you have never worked with jetson before or are completely new, then check these things before powering it on
-- Dont hotplug in the sensors. always have the board powered off and cut from power.
-- The board should have 2x 4-lane CSI2 to utilize full power of the framos sensors.
-- You should run 90W Power supply to not run into Overcurrent mode.
-<br></br>
-
-### Before starting, reflash the Jetson on Ubuntu 22.04LTS with these settings
-![Orin NX Settings](resources/orin_nx_settings.png)
-![Orin NX Flash IMG 1](resources/orin_nx_flash_img1.png)
-![Orin NX Flash IMG 2](resources/orin_nx_flash_img2.png)
-![Orin NX Flash IMG 2](resources/orin_nx_flash_img3.png)
-<br></br>
-
-### When Flashed
-- cut from power
-- plug in cameras to the CSI ports
-- plug in power to jetson
-- run the sripts in [](./)

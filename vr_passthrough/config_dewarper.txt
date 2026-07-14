@@ -1,0 +1,14 @@
+[property]
+output-width=1552
+output-height=1552
+[surface0]
+projection-type=2
+surface-index=0
+width=2064
+height=1552
+focal-length=835
+top-angle=38.0
+bottom-angle=-38.0
+pitch=0.0
+yaw=0.0
+roll=0.0

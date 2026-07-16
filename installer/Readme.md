@@ -30,13 +30,13 @@ Automated setup for the FRAMOS camera environment and/or VR passthrough on the N
 ### 1. Update the system
 
 ```bash
-apt-get update && apt-get upgrade -y
+sudo apt-get update && apt-get upgrade -y
 ```
 
 ### 2. Install dependencies
 
 ```bash
-apt install -y curl ansible
+sudo apt install -y curl ansible
 ```
 
 ### 3. Run the installer
@@ -46,19 +46,19 @@ Choose which component(s) to install by setting the `target` variable.
 **Installs Framos with VR Passthrough system**
 
 ```bash
-ansible-playbook Install.yml
+sudo ansible-playbook Install.yml
 ```
 
 **FRAMOS IMX environment only**
 
 ```bash
-ansible-playbook Install.yml -e "target=framos"
+sudo ansible-playbook Install.yml -e "target=framos"
 ```
 
 **VR passthrough only**
 
 ```bash
-ansible-playbook Install.yml -e "target=vr"
+sudo ansible-playbook Install.yml -e "target=vr"
 ```
 
 > No `target` specified? The playbook defaults to `all`.

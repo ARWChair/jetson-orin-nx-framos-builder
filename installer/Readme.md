@@ -74,7 +74,7 @@ sudo ansible-playbook Install.yml -e "target=vr"
 ## One-liner (full install)
 
 ```bash
-apt-get update && apt-get upgrade -y && apt install -y curl ansible && ansible-playbook Install.yml -e "target=all"
+sudo apt-get update && sudo apt-get upgrade -y && sudo apt install -y curl ansible && sudo ansible-playbook Install.yml -e "target=all"
 ```
 
 ## Troubleshooting

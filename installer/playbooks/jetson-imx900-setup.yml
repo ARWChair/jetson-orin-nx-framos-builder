@@ -1,6 +1,7 @@
 ---
 - name: Jetson Orin NX - IMX900C Kamera Setup
-  hosts: jetson
+  hosts: localhost
+  connection: local
   become: false
   vars:
     build_dir: "{{ ansible_env.HOME }}/jetson-build"
@@ -12,7 +13,6 @@
     base_dtb: "kernel_tegra234-p3768-0000+p3767-0001-nv.dtb"
 
   tasks:
-
     - name: "Phase 1 | Build-Tools installieren"
       become: true
       apt:
@@ -37,7 +37,7 @@
         path: "{{ build_dir }}"
         state: directory
 
-    - name: "Phase 2 | Prüfen ob public_sources.tbz2 bereits vorhanden"
+    - name: "Phase 2 | Pruefen ob public_sources.tbz2 bereits vorhanden"
       stat:
         path: "{{ build_dir }}/public_sources.tbz2"
       register: sources_tbz2
@@ -49,7 +49,7 @@
         timeout: 600
       when: not sources_tbz2.stat.exists
 
-    - name: "Phase 2 | Prüfen ob public_sources bereits entpackt"
+    - name: "Phase 2 | Pruefen ob public_sources bereits entpackt"
       stat:
         path: "{{ build_dir }}/Linux_for_Tegra"
       register: l4t_dir
@@ -60,7 +60,7 @@
         chdir: "{{ build_dir }}"
       when: not l4t_dir.stat.exists
 
-    - name: "Phase 2 | Prüfen ob kernel_src bereits entpackt"
+    - name: "Phase 2 | Pruefen ob kernel_src bereits entpackt"
       stat:
         path: "{{ build_dir }}/Linux_for_Tegra/source/kernel/kernel-jammy-src"
       register: kernel_jammy
@@ -77,7 +77,7 @@
         chdir: "{{ build_dir }}/Linux_for_Tegra/source"
       when: not kernel_jammy.stat.exists
 
-    - name: "Phase 3 | Prüfen ob Kernel Image bereits kompiliert"
+    - name: "Phase 3 | Pruefen ob Kernel Image bereits kompiliert"
       stat:
         path: "{{ kernel_src }}/arch/arm64/boot/Image"
       register: kernel_image
@@ -102,7 +102,7 @@
         line: 'CONFIG_LOCALVERSION=""'
       when: not kernel_image.stat.exists
 
-    - name: "Phase 3 | olddefconfig ausführen"
+    - name: "Phase 3 | olddefconfig ausfuehren"
       shell: make ARCH=arm64 olddefconfig
       args:
         chdir: "{{ kernel_src }}"
@@ -114,10 +114,8 @@
         chdir: "{{ kernel_src }}"
       when: not kernel_image.stat.exists
 
-    - name: "Phase 3 | Kernel-Version prüfen"
-      shell: cat include/config/kernel.release
-      args:
-        chdir: "{{ kernel_src }}"
+    - name: "Phase 3 | Kernel-Version aus kernel.release lesen"
+      shell: cat {{ kernel_src }}/include/config/kernel.release
       register: kernel_version
       changed_when: false
 
@@ -150,9 +148,14 @@
       args:
         chdir: "{{ kernel_src }}"
 
-    - name: "Phase 4 | Module-Verzeichnis prüfen"
+    - name: "Phase 4 | Module-Verzeichnis pruefen"
       shell: ls {{ modules_staging }}/lib/modules/
       register: modules_dir
+      changed_when: false
+
+    - name: "Phase 4 | Kernel-Version fuer Modul-Copy ermitteln"
+      shell: cat {{ kernel_src }}/include/config/kernel.release
+      register: kernel_version
       changed_when: false
 
     - name: "Phase 4 | Module manuell ins System kopieren (NICHT make modules_install!)"
@@ -161,11 +164,7 @@
       args:
         creates: "/lib/modules/{{ kernel_version.stdout }}"
 
-    # ============================================================
-    # PHASE 5: Framos-Treiber bauen & installieren
-    # ============================================================
-
-    - name: "Phase 5 | Prüfen ob Framos-Repo bereits vorhanden"
+    - name: "Phase 5 | Pruefen ob Framos-Repo bereits vorhanden"
       stat:
         path: "{{ framos_src }}"
       register: framos_dir
@@ -180,22 +179,22 @@
 
     - name: "Phase 5 | Framos OOT-Module und DTBs bauen"
       shell: |
-        source build/target_build.sh
+        cd {{ framos_src }}/build
+        . ./target_build.sh
         build_all
       args:
-        chdir: "{{ framos_src }}"
         executable: /bin/bash
 
     - name: "Phase 5 | Framos OOT-Module installieren"
       shell: |
-        source build/target_build.sh
+        cd {{ framos_src }}/build
+        . ./target_build.sh
         install_all
       args:
-        chdir: "{{ framos_src }}"
         executable: /bin/bash
       become: true
 
-    - name: "Phase 5 | Prüfen ob IMX900 DTBO vorhanden"
+    - name: "Phase 5 | Pruefen ob IMX900 DTBO vorhanden"
       stat:
         path: "/boot/framos/dtbo/tegra234-p3767-camera-p3768-fr_imx900-cam0-2lane-overlay.dtbo"
       register: dtbo_check
@@ -244,51 +243,62 @@
         remote_src: true
         force: false
 
-    - name: "Phase 8 | Prüfen ob FDT Zeile bereits vorhanden"
-      shell: grep -c "FDT" /boot/extlinux/extlinux.conf || true
-      become: true
-      register: fdt_exists
-      changed_when: false
-
-    - name: "Phase 8 | FDT Zeile nach INITRD einfügen (nur wenn noch nicht vorhanden)"
+    - name: "Phase 8 | extlinux.conf sicher patchen (nur primary label, Kommentare unveraendert)"
       become: true
       shell: |
-        sed -i '/INITRD \/boot\/initrd/a\      FDT /boot/dtb/{{ base_dtb }}' /boot/extlinux/extlinux.conf
-      when: fdt_exists.stdout == "0"
+        python3 << 'PYEOF'
+        import re
 
-    - name: "Phase 8 | Prüfen ob OVERLAYS Zeile bereits vorhanden"
-      shell: grep -c "OVERLAYS" /boot/extlinux/extlinux.conf || true
-      become: true
-      register: overlays_exists
-      changed_when: false
+        with open('/boot/extlinux/extlinux.conf', 'r') as f:
+            content = f.read()
 
-    - name: "Phase 8 | OVERLAYS Zeile nach FDT einfügen (nur wenn noch nicht vorhanden)"
-      become: true
-      shell: |
-        sed -i '/FDT \/boot\/dtb/a\      OVERLAYS /boot/framos/dtbo/tegra234-p3767-camera-p3768-fr_fpa_a_p22-overlay.dtbo,/boot/framos/dtbo/tegra234-p3767-camera-p3768-fr_imx900-cam0-2lane-overlay.dtbo,/boot/framos/dtbo/tegra234-p3767-camera-p3768-fr_imx900-cam1-4lane-overlay.dtbo' /boot/extlinux/extlinux.conf
-      when: overlays_exists.stdout == "0"
+        fdt_line    = '      FDT /boot/dtb/{{ base_dtb }}'
+        overlay_line = '      OVERLAYS /boot/framos/dtbo/tegra234-p3767-camera-p3768-fr_fpa_a_p22-overlay.dtbo,/boot/framos/dtbo/tegra234-p3767-camera-p3768-fr_imx900-cam0-2lane-overlay.dtbo,/boot/framos/dtbo/tegra234-p3767-camera-p3768-fr_imx900-cam1-4lane-overlay.dtbo'
 
-    - name: "Phase 8 | OVERLAYS aktualisieren falls bereits vorhanden aber ohne Framos-Einträge"
-      become: true
-      shell: |
-        sed -i 's|.*OVERLAYS.*|      OVERLAYS /boot/framos/dtbo/tegra234-p3767-camera-p3768-fr_fpa_a_p22-overlay.dtbo,/boot/framos/dtbo/tegra234-p3767-camera-p3768-fr_imx900-cam0-2lane-overlay.dtbo,/boot/framos/dtbo/tegra234-p3767-camera-p3768-fr_imx900-cam1-4lane-overlay.dtbo|' /boot/extlinux/extlinux.conf
-      when:
-        - overlays_exists.stdout != "0"
-        - "'framos' not in overlays_exists.stdout"
+        lines = content.splitlines(keepends=True)
+        result = []
+        in_primary = False
+        fdt_added = False
+        overlays_added = False
 
-    - name: "Phase 8 | Backup-Label hinzufügen falls noch nicht vorhanden"
-      become: true
-      shell: |
-        if ! grep -q "LABEL backup" /boot/extlinux/extlinux.conf; then
-          cat >> /boot/extlinux/extlinux.conf << 'EOF'
+        for line in lines:
+            stripped = line.strip()
 
-        LABEL backup
-              MENU LABEL backup kernel (original)
-              LINUX /boot/Image.backup
-              INITRD /boot/initrd
-              APPEND ${cbootargs} root=PARTUUID={{ root_partuuid.stdout }} rw rootwait rootfstype=ext4 mminit_loglevel=4 console=ttyTCU0,115200 firmware_class.path=/etc/firmware fbcon=map:0 video=efifb:off console=tty0 nv-auto-config
-        EOF
-        fi
+            # Track ob wir im primary LABEL sind (nicht in Kommentaren)
+            if stripped == 'LABEL primary':
+                in_primary = True
+            elif stripped.startswith('LABEL ') and stripped != 'LABEL primary':
+                in_primary = False
+
+            # Im primary block: FDT/OVERLAYS einfuegen oder ersetzen
+            if in_primary and not line.startswith('#'):
+                # Bestehende FDT/OVERLAYS Zeilen ersetzen
+                if stripped.startswith('FDT '):
+                    result.append(fdt_line + '\n')
+                    fdt_added = True
+                    continue
+                if stripped.startswith('OVERLAYS '):
+                    result.append(overlay_line + '\n')
+                    overlays_added = True
+                    continue
+                # Nach INITRD einfuegen wenn noch nicht vorhanden
+                if stripped.startswith('INITRD '):
+                    result.append(line)
+                    if not fdt_added:
+                        result.append(fdt_line + '\n')
+                        fdt_added = True
+                    if not overlays_added:
+                        result.append(overlay_line + '\n')
+                        overlays_added = True
+                    continue
+
+            result.append(line)
+
+        with open('/boot/extlinux/extlinux.conf', 'w') as f:
+            f.writelines(result)
+
+        print('extlinux.conf erfolgreich gepatcht')
+        PYEOF
 
     - name: "Phase 8 | extlinux.conf anzeigen zur Verifikation"
       shell: cat /boot/extlinux/extlinux.conf
@@ -299,3 +309,9 @@
     - name: "Phase 8 | extlinux.conf Inhalt"
       debug:
         msg: "{{ extlinux_content.stdout_lines }}"
+
+    - name: "Phase 3 | Kernel-Version fuer Abschluss-Meldung lesen"
+      shell: cat {{ kernel_src }}/include/config/kernel.release
+      register: kernel_version_final
+      changed_when: false
+      ignore_errors: true

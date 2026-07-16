@@ -6,11 +6,13 @@
     repo_root: "{{ playbook_dir }}/../.."
     vr_dir: "{{ repo_root }}/vr_passthrough"
     build_dir: "{{ vr_dir }}/build"
+    sdl_url: "https://github.com/libsdl-org/SDL/releases/download/release-3.4.12/SDL3-3.4.12.tar.gz"
+    sdl_archive_dest: "/tmp/SDL3-3.4.12.tar.gz"
+    sdl_extract_path: "/tmp/sdl3_build"
+    target_user: "{{ ansible_env.SUDO_USER | default(ansible_user_id) }}"
 
   tasks:
-
     - name: "Phase 1 | Build-Abhängigkeiten installieren"
-      become: true
       apt:
         name:
           - cmake
@@ -18,10 +20,77 @@
           - pkg-config
           - libegl-dev
           - libgles2-mesa-dev
+          - libx11-dev
+          - libxext-dev
+          - libxrandr-dev
+          - libxinerama-dev
+          - libxcursor-dev
+          - libxi-dev
+          - libxkbcommon-dev
+          - libwayland-dev
+          - libxfixes-dev
+          - libxss-dev
+          - libxtst-dev
+          - libgbm-dev
+          - curl
         state: present
         update_cache: true
 
-    - name: "Phase 2 | Build-Verzeichnis erstellen"
+    - name: "Phase 1.5 | Prüfen, ob SDL3 bereits installiert ist"
+      command: pkg-config --exists sdl3
+      register: sdl3_installed
+      ignore_errors: true
+      changed_when: false
+
+    - name: "Phase 1.5 | SDL3 herunterladen und installieren (falls nicht vorhanden)"
+      block:
+        - name: "SDL3 | Archiv herunterladen"
+          get_url:
+            url: "{{ sdl_url }}"
+            dest: "{{ sdl_archive_dest }}"
+            mode: '0644'
+
+        - name: "SDL3 | Temporäres Build-Verzeichnis erstellen"
+          file:
+            path: "{{ sdl_extract_path }}"
+            state: directory
+
+        - name: "SDL3 | Archiv entpacken"
+          unarchive:
+            src: "{{ sdl_archive_dest }}"
+            dest: "{{ sdl_extract_path }}"
+            remote_src: true
+            extra_opts: [--strip-components=1]
+
+        - name: "SDL3 | Build-Verzeichnis erstellen"
+          file:
+            path: "{{ sdl_extract_path }}/build"
+            state: directory
+
+        - name: "SDL3 | CMake konfigurieren"
+          shell: cmake .. -DCMAKE_BUILD_TYPE=Release
+          args:
+            chdir: "{{ sdl_extract_path }}/build"
+
+        - name: "SDL3 | Kompilieren und Installieren"
+          shell: make -j$(nproc) && make install
+          args:
+            chdir: "{{ sdl_extract_path }}/build"
+
+        - name: "SDL3 | Shared Libraries aktualisieren"
+          command: ldconfig
+
+      when: sdl3_installed.rc != 0
+      always:
+        - name: "SDL3 | Cleanup (Temporäre Ordner & Archiv löschen)"
+          file:
+            path: "{{ item }}"
+            state: absent
+          loop:
+            - "{{ sdl_extract_path }}"
+            - "{{ sdl_archive_dest }}"
+
+    - name: "Phase 2 | Build-Verzeichnis für VR Passthrough erstellen"
       file:
         path: "{{ build_dir }}"
         state: directory
@@ -56,3 +125,30 @@
       fail:
         msg: "vr_passthrough Binary nicht gefunden – Build fehlgeschlagen!"
       when: not binary.stat.exists
+      
+    - name: "Phase 6 | GNOME Autostart einrichten"
+      block:
+        - name: "Autostart | Verzeichnis für den User erstellen"
+          file:
+            path: "/home/{{ target_user }}/.config/autostart"
+            state: directory
+            owner: "{{ target_user }}"
+            group: "{{ target_user }}"
+            mode: '0755'
+
+        - name: "Autostart | Desktop Entry erstellen"
+          copy:
+            dest: "/home/{{ target_user }}/.config/autostart/vr_passthrough.desktop"
+            owner: "{{ target_user }}"
+            group: "{{ target_user }}"
+            mode: '0644'
+            content: |
+              [Desktop Entry]
+              Type=Application
+              Name=VR Passthrough
+              Comment=Starts the VR Passthrough dewarper on login
+              Exec={{ build_dir }}/vr_passthrough {{ build_dir }}/../config_dewarper.txt
+              Path={{ build_dir }}
+              Terminal=false
+              NoDisplay=false
+              X-GNOME-Autostart-enabled=true

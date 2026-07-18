@@ -65,9 +65,9 @@ struct DewarpConfig {
                     if (key == "yaw")             cfg.yawDeg         = std::stod(val);
                     if (key == "roll")            cfg.rollDeg        = std::stod(val);
                 } else if (section == "lens") {
-		    if (key == "k1")              cfg.k1             = std::stod(val);
-		    if (key == "k2")              cfg.k2             = std::stod(val);
-		}
+		            if (key == "k1")              cfg.k1             = std::stod(val);
+		            if (key == "k2")              cfg.k2             = std::stod(val);
+		        }
             } catch (...) {
             }
         }

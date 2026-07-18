@@ -19,3 +19,7 @@
 - name: "vr | VR Passthrough Install"
   import_playbook: playbooks/vr-passthrough-setup.yml
   when: target == "vr" or target == "all"
+
+- name: "vr | Configure OS"
+  import_playbook: playbooks/configure-os.yml
+  when: target == "vr" or target == "all"

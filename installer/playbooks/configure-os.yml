@@ -1,0 +1,260 @@
+---
+
+- name: GDM Autologin + GNOME Sleep/Lock deaktivieren
+  hosts: localhost
+  connection: local
+  become: true
+
+  vars:
+    autologin_user: "{{ lookup('env', 'SUDO_USER') }}"
+
+  pre_tasks:
+    - name: Prüfen, ob das Playbook via sudo aufgerufen wurde
+      ansible.builtin.fail:
+        msg: >
+          SUDO_USER ist leer. Bitte das Playbook mit
+          'sudo ansible-playbook gnome_kiosk_setup.yml' aufrufen,
+          nicht als root direkt eingeloggt.
+      when: autologin_user | length == 0
+
+    - name: User-Infos (UID/Home) des Autologin-Users ermitteln
+      ansible.builtin.getent:
+        database: passwd
+        key: "{{ autologin_user }}"
+
+    - name: Fakten setzen (UID, Home)
+      ansible.builtin.set_fact:
+        autologin_uid: "{{ getent_passwd[autologin_user][1] }}"
+        autologin_home: "{{ getent_passwd[autologin_user][4] }}"
+
+  tasks:
+
+    - name: Backup der custom.conf anlegen
+      ansible.builtin.copy:
+        src: /etc/gdm3/custom.conf
+        dest: /etc/gdm3/custom.conf.bak
+        remote_src: true
+        force: false
+
+    - name: AutomaticLoginEnable aktivieren
+      community.general.ini_file:
+        path: /etc/gdm3/custom.conf
+        section: daemon
+        option: AutomaticLoginEnable
+        value: "true"
+        no_extra_spaces: true
+        mode: "0644"
+      notify: gdm3 neustart nötig
+
+    - name: AutomaticLogin auf sudo-User setzen
+      community.general.ini_file:
+        path: /etc/gdm3/custom.conf
+        section: daemon
+        option: AutomaticLogin
+        value: "{{ autologin_user }}"
+        no_extra_spaces: true
+        mode: "0644"
+      notify: gdm3 neustart nötig
+
+    - name: dconf Verzeichnis für lokale Defaults anlegen
+      ansible.builtin.file:
+        path: /etc/dconf/db/local.d
+        state: directory
+        mode: "0755"
+
+    - name: dconf-Profil "user" anlegen (damit local-DB geladen wird)
+      ansible.builtin.file:
+        path: /etc/dconf/profile
+        state: directory
+        mode: "0755"
+
+    - name: dconf user-Profil konfigurieren
+      ansible.builtin.copy:
+        dest: /etc/dconf/profile/user
+        mode: "0644"
+        content: |
+          user-db:user
+          system-db:local
+
+    - name: dconf Keyfile für Power/Screensaver/Session-Settings schreiben
+      ansible.builtin.copy:
+        dest: /etc/dconf/db/local.d/00-no-sleep
+        mode: "0644"
+        content: |
+          [org/gnome/settings-daemon/plugins/power]
+          sleep-inactive-ac-type='nothing'
+          sleep-inactive-battery-type='nothing'
+          sleep-inactive-ac-timeout=0
+          sleep-inactive-battery-timeout=0
+          idle-dim=false
+          power-button-action='nothing'
+
+          [org/gnome/desktop/screensaver]
+          lock-enabled=false
+          idle-activation-enabled=false
+          lock-delay=uint32 0
+
+          [org/gnome/desktop/session]
+          idle-delay=uint32 0
+
+          [org/gnome/desktop/notifications]
+          show-banners=false
+          show-in-lock-screen=false
+      notify: dconf update
+
+    - name: dconf locks-Verzeichnis anlegen
+      ansible.builtin.file:
+        path: /etc/dconf/db/local.d/locks
+        state: directory
+        mode: "0755"
+
+    - name: Locks-Datei anlegen, damit User diese Settings NICHT überschreiben können
+      ansible.builtin.copy:
+        dest: /etc/dconf/db/local.d/locks/00-no-sleep-locks
+        mode: "0644"
+        content: |
+          /org/gnome/settings-daemon/plugins/power/sleep-inactive-ac-type
+          /org/gnome/settings-daemon/plugins/power/sleep-inactive-battery-type
+          /org/gnome/settings-daemon/plugins/power/sleep-inactive-ac-timeout
+          /org/gnome/settings-daemon/plugins/power/sleep-inactive-battery-timeout
+          /org/gnome/desktop/screensaver/lock-enabled
+          /org/gnome/desktop/screensaver/idle-activation-enabled
+          /org/gnome/desktop/session/idle-delay
+          /org/gnome/desktop/notifications/show-banners
+          /org/gnome/desktop/notifications/show-in-lock-screen
+      notify: dconf update
+
+    - name: Prüfen, ob eine grafische Session des Autologin-Users bereits läuft
+      ansible.builtin.command: "loginctl show-user {{ autologin_user }} -p State --value"
+      register: user_session_state
+      changed_when: false
+      failed_when: false
+
+    - name: DBUS Session Bus Pfad ermitteln
+      ansible.builtin.set_fact:
+        dbus_session_bus: "unix:path=/run/user/{{ autologin_uid }}/bus"
+      when: user_session_state.stdout is defined and user_session_state.stdout == "active"
+
+    - name: gsettings live anwenden (nur wenn Session bereits aktiv ist)
+      become: true
+      become_user: "{{ autologin_user }}"
+      environment:
+        DISPLAY: ":0"
+        DBUS_SESSION_BUS_ADDRESS: "{{ dbus_session_bus }}"
+      ansible.builtin.command: "{{ item }}"
+      loop:
+        - "gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-ac-type 'nothing'"
+        - "gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-battery-type 'nothing'"
+        - "gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-ac-timeout 0"
+        - "gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-battery-timeout 0"
+        - "gsettings set org.gnome.settings-daemon.plugins.power idle-dim false"
+        - "gsettings set org.gnome.desktop.screensaver lock-enabled false"
+        - "gsettings set org.gnome.desktop.screensaver idle-activation-enabled false"
+        - "gsettings set org.gnome.desktop.session idle-delay 0"
+        - "gsettings set org.gnome.desktop.notifications show-banners false"
+        - "gsettings set org.gnome.desktop.notifications show-in-lock-screen false"
+      when: user_session_state.stdout is defined and user_session_state.stdout == "active"
+      register: gsettings_live_result
+      changed_when: gsettings_live_result.rc == 0
+      failed_when: >
+        gsettings_live_result.rc != 0 and
+        "is not writable" not in gsettings_live_result.stderr
+
+    - name: logind.conf Settings setzen
+      ansible.builtin.lineinfile:
+        path: /etc/systemd/logind.conf
+        regexp: "^#?{{ item.key }}="
+        line: "{{ item.key }}={{ item.value }}"
+        insertafter: "^\\[Login\\]"
+      loop:
+        - { key: "HandleLidSwitch", value: "ignore" }
+        - { key: "HandleLidSwitchExternalPower", value: "ignore" }
+        - { key: "HandleLidSwitchDocked", value: "ignore" }
+        - { key: "HandlePowerKey", value: "ignore" }
+        - { key: "HandleSuspendKey", value: "ignore" }
+        - { key: "HandleHibernateKey", value: "ignore" }
+        - { key: "IdleAction", value: "ignore" }
+      notify: systemd-logind neustart
+
+    - name: sleep/suspend/hibernate Targets maskieren
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        masked: true
+      loop:
+        - sleep.target
+        - suspend.target
+        - hibernate.target
+        - hybrid-sleep.target
+
+    - name: Prüfen, ob /etc/default/apport existiert
+      ansible.builtin.stat:
+        path: /etc/default/apport
+      register: apport_default_file
+
+    - name: apport in /etc/default/apport deaktivieren
+      ansible.builtin.lineinfile:
+        path: /etc/default/apport
+        regexp: "^enabled="
+        line: "enabled=0"
+      when: apport_default_file.stat.exists
+      notify: apport stoppen
+
+    - name: apport.service maskieren
+      ansible.builtin.systemd:
+        name: apport.service
+        masked: true
+        state: stopped
+      failed_when: false
+
+    - name: whoopsie.service maskieren (sendet Crash-Reports an Canonical)
+      ansible.builtin.systemd:
+        name: whoopsie.service
+        masked: true
+        state: stopped
+      failed_when: false
+
+    - name: Vorhandene Crash-Reports löschen, damit keine Alt-Popups mehr aufploppen
+      ansible.builtin.command: "find /var/crash -type f -delete"
+      changed_when: true
+      failed_when: false
+
+    - name: Prüfen, ob nvpmodel vorhanden ist (nur auf Jetson-Geräten)
+      ansible.builtin.stat:
+        path: /usr/sbin/nvpmodel
+      register: nvpmodel_bin
+
+    - name: nvpmodel auf Max-Power-Mode (MAXN, Mode 0) setzen
+      ansible.builtin.command: nvpmodel -m 0
+      register: nvpmodel_result
+      changed_when: "'NV Power Mode' in nvpmodel_result.stdout or nvpmodel_result.rc == 0"
+      when: nvpmodel_bin.stat.exists
+
+    - name: jetson_clocks ausführen (Takte auf Maximum fixieren)
+      ansible.builtin.command: jetson_clocks
+      when: nvpmodel_bin.stat.exists
+      changed_when: true
+
+  handlers:
+    - name: dconf update
+      ansible.builtin.command: dconf update
+      listen: "dconf update"
+
+    - name: systemd-logind neustart
+      ansible.builtin.systemd:
+        name: systemd-logind
+        state: restarted
+      listen: "systemd-logind neustart"
+
+    - name: gdm3 neustart nötig
+      ansible.builtin.debug:
+        msg: >
+          GDM3-Konfiguration wurde geändert. Ein Reboot (oder
+          'systemctl restart gdm3') ist nötig, damit Autologin greift.
+      listen: "gdm3 neustart nötig"
+
+    - name: apport stoppen
+      ansible.builtin.systemd:
+        name: apport.service
+        state: stopped
+      failed_when: false
+      listen: "apport stoppen"

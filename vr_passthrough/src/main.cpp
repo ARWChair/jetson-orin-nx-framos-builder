@@ -15,64 +15,64 @@
 #include <atomic>
 
 #include "ArgusCamera.hpp"
-#include "DewarpConfig.hpp"
+#include "Config.hpp"
 #include "Shaders.hpp"
 
 using namespace Argus;
 
 namespace {
 
-std::atomic<bool> g_quit{false};
+	std::atomic<bool> g_quit{false};
 
-void handleSignal(int) { g_quit = true; }
+	void handleSignal(int) { g_quit = true; }
 
-GLuint compileShader(GLenum type, const char* src) {
-    GLuint shader = glCreateShader(type);
-    glShaderSource(shader, 1, &src, nullptr);
-    glCompileShader(shader);
-    GLint ok = 0;
-    glGetShaderiv(shader, GL_COMPILE_STATUS, &ok);
-    if (!ok) {
-        char log[2048];
-        glGetShaderInfoLog(shader, sizeof(log), nullptr, log);
-        std::cerr << "Shader-Compile-Fehler:\n" << log << "\n";
-        std::exit(1);
-    }
-    return shader;
-}
+	GLuint compileShader(GLenum type, const char* src) {
+	    GLuint shader = glCreateShader(type);
+	    glShaderSource(shader, 1, &src, nullptr);
+	    glCompileShader(shader);
+	    GLint ok = 0;
+	    glGetShaderiv(shader, GL_COMPILE_STATUS, &ok);
+	    if (!ok) {
+	        char log[2048];
+	        glGetShaderInfoLog(shader, sizeof(log), nullptr, log);
+	        std::cerr << "Shader-Compile-Fehler:\n" << log << "\n";
+	        std::exit(1);
+	    }
+	    return shader;
+	}
 
-GLuint linkProgram(GLuint vs, GLuint fs) {
-    GLuint prog = glCreateProgram();
-    glAttachShader(prog, vs);
-    glAttachShader(prog, fs);
-    glLinkProgram(prog);
-    GLint ok = 0;
-    glGetProgramiv(prog, GL_LINK_STATUS, &ok);
-    if (!ok) {
-        char log[2048];
-        glGetProgramInfoLog(prog, sizeof(log), nullptr, log);
-        std::cerr << "Programm-Link-Fehler:\n" << log << "\n";
-        std::exit(1);
-    }
-    return prog;
-}
+	GLuint linkProgram(GLuint vs, GLuint fs) {
+	    GLuint prog = glCreateProgram();
+	    glAttachShader(prog, vs);
+	    glAttachShader(prog, fs);
+	    glLinkProgram(prog);
+	    GLint ok = 0;
+	    glGetProgramiv(prog, GL_LINK_STATUS, &ok);
+	    if (!ok) {
+	        char log[2048];
+	        glGetProgramInfoLog(prog, sizeof(log), nullptr, log);
+	        std::cerr << "Programm-Link-Fehler:\n" << log << "\n";
+	        std::exit(1);
+	    }
+	    return prog;
+	}
 
-void checkGLError(const char* tag) {
-    GLenum err;
-    while ((err = glGetError()) != GL_NO_ERROR) {
-        std::cerr << "[GL-Fehler] " << tag << ": 0x" << std::hex << err << std::dec << "\n";
-    }
-}
+	void checkGLError(const char* tag) {
+	    GLenum err;
+	    while ((err = glGetError()) != GL_NO_ERROR) {
+	        std::cerr << "[GL-Fehler] " << tag << ": 0x" << std::hex << err << std::dec << "\n";
+	    }
+	}
 
 }
 
 int main(int argc, char** argv) {
     std::signal(SIGINT, handleSignal);
     std::signal(SIGTERM, handleSignal);
-    std::string configPath = "config/config_dewarper.txt";
-    if (argc > 1) configPath = argv[1];
+    if (argc != 2)
+	std::cerr << "Error! Usage: ./program [path/config_file]" << std::endl;
 
-    DewarpConfig dewarp = DewarpConfig::loadFromFile(configPath);
+    DewarpConfig dewarp = DewarpConfig::loadFromFile(argv[1]);
 
     const uint32_t kSensorWidth  = static_cast<uint32_t>(dewarp.inputWidth);
     const uint32_t kSensorHeight = static_cast<uint32_t>(dewarp.inputHeight);
@@ -168,12 +168,14 @@ int main(int argc, char** argv) {
     glDeleteShader(vs);
     glDeleteShader(fs);
 
-    GLint locTex        = glGetUniformLocation(prog, "uTex");
+    GLint locTex         = glGetUniformLocation(prog, "uTex");
     GLint locInputSize   = glGetUniformLocation(prog, "uInputSize");
     GLint locOutputSize  = glGetUniformLocation(prog, "uOutputSize");
     GLint locFocalLength = glGetUniformLocation(prog, "uFocalLength");
     GLint locVFov        = glGetUniformLocation(prog, "uVFovRad");
     GLint locRot         = glGetUniformLocation(prog, "uRot");
+    GLint locK1		 = glGetUniformLocation(prog, "k1");
+    GLint locK2		 = glGetUniformLocation(prog, "k2");
 
     const float quadVerts[] = {
         -1.f, -1.f,  0.f, 1.f,
@@ -255,6 +257,9 @@ int main(int argc, char** argv) {
         glUniform1f(locFocalLength, focalLength);
         glUniform1f(locVFov, vfov);
         glUniformMatrix3fv(locRot, 1, GL_FALSE, rotMat);
+
+	glUniform1f(locK1, dewarp.k1);
+	glUniform1f(locK2, dewarp.k2);
 
         glBindVertexArray(vao);
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);

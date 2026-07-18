@@ -20,6 +20,8 @@ struct DewarpConfig {
     double pitchDeg       = 0.0;
     double yawDeg         = 0.0;
     double rollDeg        = 0.0;
+    float k1              = 0.0f;
+    float k2              = 0.0f;
 
     static std::string trim(const std::string &s) {
         size_t a = s.find_first_not_of(" \t\r\n");
@@ -62,7 +64,10 @@ struct DewarpConfig {
                     if (key == "pitch")           cfg.pitchDeg       = std::stod(val);
                     if (key == "yaw")             cfg.yawDeg         = std::stod(val);
                     if (key == "roll")            cfg.rollDeg        = std::stod(val);
-                }
+                } else if (section == "lens") {
+		    if (key == "k1")              cfg.k1             = std::stod(val);
+		    if (key == "k2")              cfg.k2             = std::stod(val);
+		}
             } catch (...) {
             }
         }

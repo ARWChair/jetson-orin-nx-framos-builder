@@ -12,3 +12,6 @@ bottom-angle=-38.0
 pitch=0.0
 yaw=0.0
 roll=0.0
+[lens]
+k1=0.0  #For lens distortion config. Keep over 0 (k1 >= 0.0)
+k2=0.0  #Dor lens distortion config. Keep over 0 (k2 >= 0.0)

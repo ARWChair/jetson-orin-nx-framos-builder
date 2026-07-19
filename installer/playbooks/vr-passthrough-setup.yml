@@ -147,7 +147,7 @@
               Type=Application
               Name=VR Passthrough
               Comment=Starts the VR Passthrough dewarper on login
-              Exec={{ build_dir }}/vr_passthrough {{ build_dir }}/../config_dewarper.txt
+              Exec={{ build_dir }}/vr_passthrough {{ build_dir }}/../config.txt
               Path={{ build_dir }}
               Terminal=false
               NoDisplay=false
